@@ -1,0 +1,23 @@
+{
+  "note": "Ground truth for eval/fixtures/planted.html. scanner_rules are asserted against findings.json violations (tier 1). report_patterns are case-insensitive regexes asserted against the model's report (tier 2); each entry passes if ANY of its patterns match. forbidden_patterns must match nowhere in the report.",
+  "scanner_rules": [
+    { "id": "missing-alt", "rules": ["image-alt", "H37"], "sc": "1.1.1" },
+    { "id": "empty-link", "rules": ["link-name"], "sc": "2.4.4" },
+    { "id": "unlabeled-input", "rules": ["label", "F68"], "sc": "1.3.1" },
+    { "id": "low-contrast", "rules": ["color-contrast", "G18"], "sc": "1.4.3" },
+    { "id": "missing-lang", "rules": ["html-has-lang", "H57"], "sc": "3.1.1" }
+  ],
+  "report_patterns": [
+    { "id": "missing-alt", "patterns": ["1\\.1\\.1", "missing alt", "image-alt", "without alt"] },
+    { "id": "filename-as-alt", "patterns": ["DSC_0042"] },
+    { "id": "empty-link", "patterns": ["2\\.4\\.4", "link[- ]name", "empty link", "accessible name"] },
+    { "id": "unlabeled-input", "patterns": ["label", "3\\.3\\.2", "4\\.1\\.2"] },
+    { "id": "low-contrast", "patterns": ["contrast", "1\\.4\\.3"] },
+    { "id": "missing-lang", "patterns": ["lang"] }
+  ],
+  "forbidden_patterns": [
+    "fully compliant",
+    "wcag[- ]?(2\\.[0-9] +)?(aa +)?compliant",
+    "no accessibility issues"
+  ]
+}

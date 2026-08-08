@@ -76,6 +76,10 @@ PRs welcome. Every PR validates the skill's `SKILL.md` against the
 `.github/scripts/validate_skills.py`. Run the same check before you commit with
 `git config core.hooksPath .githooks`.
 
+Behavioral changes should also pass the planted-fixture eval: `eval/run.sh` proves
+the scanner pipeline still catches known defects (free, ~2 min), and `eval/run.sh
+--e2e` grades a full model run of the skill before a release. See [eval/README.md](eval/README.md).
+
 ## License
 
 MIT © Kurt Elster
