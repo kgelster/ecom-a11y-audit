@@ -1,6 +1,17 @@
 # a11y-audit
 
-An accessibility audit skill for Shopify stores, built for Claude Code (and any agent runtime that reads `SKILL.md` skills). Point it at a storefront and it produces a prioritized WCAG 2.2 Level AA findings report: automated scanners for the deterministic checks, model judgment for everything scanners can't decide, honest labeling for everything neither could check, and every finding attributed to its real owner: the theme, or the app that injected the markup.
+**Point it at a storefront. It tells you what fails WCAG 2.2 AA, how to fix it, and which app to blame.**
+
+An accessibility audit skill for Shopify stores, built for Claude Code (and any agent runtime that reads `SKILL.md` skills). It produces a prioritized WCAG 2.2 Level AA findings report: automated scanners for the deterministic checks, model judgment for everything scanners can't decide, honest labeling for everything neither could check, and every finding attributed to its real owner: the theme, or the app that injected the markup.
+
+## What a report looks like
+
+![Sample audit report: prioritized WCAG findings with evidence grades, computed contrast ratios, and per-finding fix routes](docs/sample-report.png)
+
+That is a real run, not a mockup: the repo's eval harness (`eval/run.sh --e2e`) pointed the skill at
+[a local fixture page](eval/fixtures/planted.html) with six planted defects. All six were caught,
+including the `alt="DSC_0042.jpg"` catch that scanners pass and only the model judgment layer can
+make. Full output: [docs/sample-report.md](docs/sample-report.md).
 
 **Honesty is the product.** Automated rules cover roughly 20-40% of WCAG success criteria. This skill never claims compliance from a clean scan, never marks an unchecked criterion as a pass, and never invents a contrast ratio it didn't compute. Criteria that weren't exercised are reported as **Undetermined**, not passed.
 
@@ -33,6 +44,13 @@ As a Claude Code plugin:
 ```
 /plugin marketplace add kgelster/ecom-a11y-audit
 /plugin install a11y-audit@kgelster-a11y
+```
+
+For Codex, Cursor, or any other agent that reads `SKILL.md` skills, the
+`skills` CLI installs it straight from this repo:
+
+```
+npx skills add https://github.com/kgelster/ecom-a11y-audit --skill a11y-audit
 ```
 
 Or manually: clone this repo and copy `skills/a11y-audit/` into `~/.claude/skills/`.
