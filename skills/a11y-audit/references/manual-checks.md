@@ -20,8 +20,14 @@ Engines catch *empty* names. You catch *useless* ones:
 - Icon-only buttons whose aria-label doesn't match the action ("button" as a label)
 - Links whose accessible name differs wildly from visible text (SC 2.5.3 Label in Name)
 
-### Contrast indeterminates (SC 1.4.3, 1.4.11): when queue has them
-Text over images/gradients/CSS variables the engine punted on. With a screenshot: judge worst-case region, report Flagged with screenshot. Without: report as indeterminate with selector. Never estimate a numeric ratio you didn't compute from actual colors. Non-text contrast (1.4.11): check focus indicators, form field borders, icon buttons against 3:1.
+### Contrast (SC 1.4.3, 1.4.11): re-probe the settled state, always
+Two separate jobs, and the first one is not optional on a Shopify theme.
+
+**Settled-state re-probe.** axe measures at load, which on an animated theme means mid-fade. Inject `scripts/contrast_reprobe.js` (SKILL.md step 4d) before reporting any contrast number: it forces entrance animations to their end state and recomputes ratios from composited colors. `at_risk: true` means the scanner's count is unusable as printed. Only `fail` rows may be reported as failures, and the report says both counts. A theme audited this way reported 318 axe contrast failures and zero real ones.
+
+**Indeterminates.** Text over images/gradients/CSS variables the engine punted on, plus anything the probe returns as `indeterminate`: a CSS background image in the chain, an `<img>` painted behind a text overlay (hero and collection cards), unresolved color syntax, computed `rgba(0,0,0,0)` knockout type. With a screenshot: judge worst-case region, report Flagged with screenshot. Without: report as indeterminate with selector. Never estimate a numeric ratio you didn't compute from actual colors.
+
+**Non-text contrast (1.4.11)**: focus indicators, form field borders, icon buttons against 3:1.
 
 ### Keyboard access (SC 2.1.1, 2.1.2, 2.4.7): run the interactive pass (SKILL.md step 4f)
 Agent-driven: inject `scripts/focus_probe.js` for the deterministic layer (tab stops, aria-hidden focusables, invisible tab stops, positive tabindex, skip link, focus-indicator heuristic), then real-key spot checks for what a probe cannot prove:
@@ -29,6 +35,7 @@ Agent-driven: inject `scripts/focus_probe.js` for the deterministic layer (tab s
 - Focus visible on each stop (invisible focus ring = P1 Flagged; confirm with real Tab, the probe's heuristic has both false positives and negatives)
 - No traps (can't tab out of a widget = P0)
 - Modals/drawers: focus moves in on open, returns on close, Escape closes
+- Two drawers answering one toggle (an app cart installed over the theme's own): focus lands in the invisible one. See `shopify-attribution.md`, Collisions.
 - Skip link present and functional on first Tab
 Without any browser driver: Not exercised. The list above doubles as the checklist for a human tester.
 

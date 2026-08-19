@@ -1,11 +1,13 @@
 ---
 name: a11y-audit
-description: 'Use when the user asks for an accessibility audit of a Shopify store (or any live site): a11y check, WCAG/ADA compliance review, "is this store accessible", or a specific issue class: color contrast, alt text, link/button names, form labels, tap target size, keyboard access, semantic HTML. Audits the storefront with automated scanners plus model judgment, attributes every finding to the theme or the injecting app (Rebuy, Okendo, Klaviyo, etc.), and produces a prioritized report, optionally filing tasks in a tracker. Not for authoring accessible Liquid components (use a theme-authoring skill for fix patterns) and not for SEO audits.'
+description: 'Use when the user asks for an accessibility audit of a Shopify store: a11y check, WCAG/ADA compliance review, "is this store accessible", or a specific issue class: color contrast, alt text, link/button names, form labels, tap target size, keyboard access, semantic HTML. Audits the storefront with automated scanners plus model judgment, attributes every finding to the theme or the injecting app (Rebuy, Okendo, Klaviyo, etc.), and produces a prioritized report, optionally filing tasks in a tracker. Shopify storefronts only. Not for authoring accessible Liquid components (use a theme-authoring skill for fix patterns) and not for SEO audits.'
 ---
 
 # Accessibility Audit (Shopify storefronts)
 
-You are auditing a live Shopify storefront against **WCAG 2.2 Level AA** using two layers: automated scanners (pa11y running the axe-core and HTML_CodeSniffer engines, optionally Lighthouse) for the deterministic checks, and your own judgment for what scanners can't decide. The pipeline is Shopify-shaped end to end: pages are sampled by theme template, findings are attributed to their real owner (theme code vs an injecting app), and fixes are routed accordingly. The deliverable is a prioritized findings report and, when requested, tasks in the user's tracker. The scanners work on any site; on non-Shopify targets skip the Shopify-specific steps and say so in the report.
+You are auditing a live Shopify storefront against **WCAG 2.2 Level AA** using two layers: automated scanners (pa11y running the axe-core and HTML_CodeSniffer engines, optionally Lighthouse) for the deterministic checks, and your own judgment for what scanners can't decide. The pipeline is Shopify-shaped end to end: pages are sampled by theme template, findings are attributed to their real owner (theme code vs an injecting app), and fixes are routed accordingly. The deliverable is a prioritized findings report and, when requested, tasks in the user's tracker.
+
+**Shopify storefronts only.** Confirm the target is Shopify before anything else (step 1). Every layer below is Shopify-shaped: template sampling, owner attribution, fix routes, the checkout carve-out. Pointed at a non-Shopify site the scanners still emit findings, but the report around them is wrong in ways a reader can't see, so don't produce one.
 
 **Honesty is the product.** Automated rules cover roughly 20-40% of distinct WCAG success criteria (30-57% of issue instances, depending on how you count). Every report states this. A clean scan is never claimed as compliance. A criterion you did not check is **Undetermined**, never a pass.
 
@@ -19,7 +21,9 @@ You are auditing a live Shopify storefront against **WCAG 2.2 Level AA** using t
 
 ### 1. Scope contract
 
-Before scanning, confirm in one short message: target site, conformance level (default WCAG 2.2 AA), page scope, and whether tracker tasks are wanted (and where). If the user already said all this, don't re-ask. State what the audit will and won't cover (see Coverage disclosure).
+**Shopify check, before anything else.** `curl -sI <url>` and look for `x-shopid` / `x-shopify-stage`, or grep the HTML for `cdn.shopify.com`, `/cdn/shop/`, `Shopify.theme`. Headless storefronts (Hydrogen, custom front end on the Storefront API) count: the theme layer is gone, so say which steps that removes (template sampling by Liquid template, theme-file fix routes) and keep the rest. Not Shopify at all: say this skill is Shopify-only, name what a generic audit would need instead, and stop. Only exception: the user explicitly names a non-Shopify page under test (the repo's eval fixture is one), and then the report lists every Shopify step skipped.
+
+Then confirm in one short message: target store, conformance level (default WCAG 2.2 AA), page scope, and whether tracker tasks are wanted (and where). If the user already said all this, don't re-ask. State what the audit will and won't cover (see Coverage disclosure).
 
 ### 2. Sample pages, don't dump them
 
@@ -47,7 +51,9 @@ python3 $SKILL/scripts/merge_findings.py $OUT             # → findings.json + 
 - **Never read the raw pa11y/Lighthouse JSON into context.** Read `summary.md` and `findings.json` only; the merge script dedups cross-engine by (SC, selector), caps sample nodes at 5 per rule per page, and separates violations from the judgment queue.
 - Tripwire: if a page returns zero issues *and* zero warnings/notices, suspect the SPA rendered after the scan. Re-run with `--timeout 90000` or verify the page had content (curl the URL, check byte count).
 - For pages behind login or states behind interaction (open modal, cart drawer, form error state), use pa11y `--config` with `actions` (click/fill/wait steps), or drive a browser tool and audit the accessibility tree manually. Say in the report which states were and weren't exercised.
-- Password-protected store (dev/pre-launch): pa11y `actions` can submit the password form first (`set field #password to X`, `click element [type=submit]`, `wait for path to not be /password`). Unpublished theme: append `?preview_theme_id=<id>` to every URL; note in the report that the audit ran against a preview, and that preview sessions are cookie-sticky.
+- Password-protected store (dev/pre-launch): pa11y `actions` can submit the password form first (`set field #password to X`, `click element [type=submit]`, `wait for path to not be /password`). Unpublished theme: append `?preview_theme_id=<id>` to every URL; note in the report that the audit ran against a preview.
+- Preview sessions are sticky and the preview cookie is `httpOnly`, so page JS cannot clear it: a browser left on a preview theme keeps auditing that theme on bare URLs. Put it back on live by navigating to `?preview_theme_id=<live theme id>`, and re-check the served markup before trusting a comparison between two themes.
+- If the audit needs a theme-side step (pull the theme to name the failing file, push a fix to an unpublished copy), budget for a separate login: `shopify theme` commands run their own device-code flow and do not reuse an Admin API session or a custom-app token, and custom-app tokens usually lack `read_themes` / `write_themes` entirely. Storefront-only audits need none of this.
 
 ### 4. Judge (model work: this is where you beat the scanner)
 
@@ -59,7 +65,13 @@ Work through, in order:
 
 **c. Alt text quality.** Scanners check presence only. Pull the page's images (`curl -s URL | grep -o '<img[^>]*>'` or a browser tool's page reader) and judge: filename-as-alt, "image"/"photo"/"logo" filler, redundant alt duplicating adjacent text, meaningful images with `alt=""`, decorative images *with* alt. This is the highest-value model pass.
 
-**d. Contrast indeterminates.** Text over images/gradients comes back as warnings, not violations. Never estimate a ratio you didn't compute. If you can screenshot, check visually and report as Flagged with the screenshot as evidence; otherwise report as indeterminate with the selector.
+**d. Contrast: re-measure the settled state before you report a count.** axe measures at page load. A theme with entrance animations (AOS, Dawn's `scroll-trigger`, GSAP, any `fade-up`/`reveal` class) is mid-fade at that moment, so axe reads semi-transparent text and reports contrast failures that do not exist a second later. This is not a rare edge: one audited theme reported 318 color-contrast failures and every element re-checked in its settled state passed, between 5.3:1 and 21:1. Publishing that scan verbatim would have made a false headline finding.
+
+1. Inject `scripts/contrast_reprobe.js` through the browser driver, with its `SELECTORS` array replaced by the contrast group's `sample_nodes` selectors from `findings.json` (left empty it auto-samples visible text). It forces animations to their end state, scrolls each target into view, and computes real ratios from composited colors.
+2. `at_risk: true` means the page animates: the scanner's contrast count is unusable as printed. Report the re-probed numbers, and say both counts out loud ("axe reported N at load; M fail in the settled state").
+3. `fail` rows are Verified: cite the ratio, both hex values, and the selector. `pass` rows are scanner noise, drop them silently. `indeterminate` rows need a screenshot judgment and stay Flagged at best. The most common indeterminate on a Shopify theme is text over imagery, and the probe catches both forms: a CSS `background-image` in the ancestor chain, and the collection/hero card pattern where an `<img>` is painted behind a text overlay (a CSS-only walk finds "transparent all the way up", assumes white, and would report white text as a 1.09:1 failure).
+4. Text whose color computes to `rgba(0,0,0,0)` is usually knockout or outlined display type that renders fine. Judge it from a screenshot; never report it as invisible text on the strength of the computed value.
+5. Never estimate a ratio you didn't compute. No browser driver available: report contrast as Flagged, not Verified, and state that it was not re-measured after settle.
 
 **e. Readability** (advisory): extract main page text, run `python3 $SKILL/scripts/merge_findings.py readability text.txt`. WCAG 3.1.5 is AAA; report the grade level as a recommendation, never a violation.
 
@@ -71,6 +83,8 @@ Work through, in order:
 Also still model-judged here: color-only meaning (links distinguishable only by color, status dots); Lighthouse's manual stubs in summary.md are the residual checklist.
 
 **g. Owner attribution (theme vs app).** Read `references/shopify-attribution.md`. The merge script already pre-tags nodes with `owner` and rule groups with `owner_hints` from deterministic selector/markup fingerprints (Rebuy, Okendo, Klaviyo, Judge.me, chat widgets, page builders, pixels, payment iframes). Confirm the hints, attribute the untagged remainder yourself (selector ancestors, class prefixes, owning script), and split the report accordingly: the store owner can't fix app DOM in theme code, only via the app's settings or a vendor ticket. For theme-owned fixes, name the likely file (`layout/theme.liquid`, the owning section/snippet) and follow the patterns in the `liquid-theme-a11y` skill from Shopify's official AI toolkit plugin, if installed.
+
+Watch for the third case the fingerprints can't see: **collisions**, where an app and the theme both render the same UI and neither is broken alone. The standing example is an app cart drawer (Rebuy and friends) installed over a theme that still ships its own drawer: both answer the cart toggle, the orphaned theme drawer sits offscreen holding live tab stops, and keyboard focus disappears into it. The probe surfaces this as `invisible_focusable` or `aria_hidden_focusable` clustered on cart markup. Attribute it to neither party alone: report it as a collision, and route it per `references/shopify-attribution.md` (the theme drawer is the half the merchant controls).
 
 ### 5. Report
 
@@ -124,11 +138,14 @@ Only when the user asked (or asks after seeing the report). The reference flow b
 - Do not cite an SC you didn't check against.
 - Do not dump raw scanner JSON into the report or the context.
 - Do not scan only the homepage and call it an audit.
+- Do not report a scanner's contrast count on an animated theme without re-probing the settled state; that number is measured mid-fade and is usually wrong.
+- Do not audit a non-Shopify site with this skill and present it as an audit: the sampling, attribution, and fix routes assume Shopify.
 - Do not run axe with only the `wcag22aa` tag (it selects only rules *new* to 2.2); the scan script's WCAG2AA standard handles this correctly.
 - Do not write alt text, link text, or error copy into a live site as a "fix" without the owner's sign-off.
 
 ## References
 
+- `scripts/contrast_reprobe.js`: settled-state contrast re-probe for step 4d (injected in-page, zero dependencies).
 - `references/manual-checks.md`: the manual/model check catalog with per-check instructions (read at step 4).
 - `references/shopify-attribution.md`: app fingerprint table, per-app failure families, and fix routes by owner (read at step 4g).
 - Fix patterns for Shopify themes: the `liquid-theme-a11y` skill from Shopify's official AI toolkit plugin, if installed.
