@@ -1,8 +1,14 @@
 # a11y-audit
 
-**Point it at a storefront. It tells you what fails WCAG 2.2 AA, how to fix it, and which app to blame.**
+**A WCAG 2.2 AA audit that knows a Shopify store is not one codebase.**
 
-An accessibility audit skill for Shopify stores, built for Claude Code (and any agent runtime that reads `SKILL.md` skills). It produces a prioritized WCAG 2.2 Level AA findings report: automated scanners for the deterministic checks, model judgment for everything scanners can't decide, honest labeling for everything neither could check, and every finding attributed to its real owner: the theme, or the app that injected the markup.
+Point it at a storefront. It returns a prioritized findings report with every finding attributed to the party that can actually fix it: the theme, the app that injected the markup, or the collision between them. Built for Claude Code, and for any agent runtime that reads `SKILL.md` skills.
+
+**Attribution is the whole point.** Most of what fails on a real store did not come from the theme. The cart-drawer upsell hides focusable elements behind `aria-hidden`. The review widget ships sub-24px star filters. The chat launcher is an untitled iframe. The ad pixel drops an alt-less 1x1 on every page. Telling the merchant to "fix the theme" for those sends them to edit markup they don't control, and nothing gets fixed. This skill fingerprints the failing DOM (Rebuy, Okendo, Klaviyo, Judge.me, Loox, Yotpo, Stamped, Privy, Attentive, Recharge, Gorgias, Tidio, page builders, payment iframes, and more), splits the report into theme-owned, app-injected, and collision findings, and gives each app finding a fix route: widget settings, or a support ticket the merchant forwards verbatim. It also knows what escalation gets you, because a vendor will never certify compliance but will usually ship a per-merchant workaround through the widget's lifecycle callbacks.
+
+**It re-measures contrast instead of trusting the scanner.** axe samples color at page load, which on a theme with entrance animations (AOS, Dawn's `scroll-trigger`, GSAP, any `fade-up` class) is mid-fade. One audited theme reported **318 color-contrast failures**; every element re-checked in its settled state passed, between 5.3:1 and 21:1. Shipping that scan verbatim would have made a false headline finding. The skill forces animations to their end state in-page and recomputes real ratios from composited colors before a single contrast number reaches the report.
+
+**Honesty is the product.** Automated rules cover roughly 20-40% of WCAG success criteria. This skill never claims compliance from a clean scan, never marks an unchecked criterion as a pass, and never invents a contrast ratio it didn't compute. Criteria that weren't exercised are reported as **Undetermined**, not passed.
 
 ## What a report looks like
 
@@ -13,20 +19,17 @@ That is a real run, not a mockup: the repo's eval harness (`eval/run.sh --e2e`) 
 including the `alt="DSC_0042.jpg"` catch that scanners pass and only the model judgment layer can
 make. Full output: [docs/sample-report.md](docs/sample-report.md).
 
-**Honesty is the product.** Automated rules cover roughly 20-40% of WCAG success criteria. This skill never claims compliance from a clean scan, never marks an unchecked criterion as a pass, and never invents a contrast ratio it didn't compute. Criteria that weren't exercised are reported as **Undetermined**, not passed.
-
-**Attribution is the Shopify part.** On a real store, a large share of accessibility failures arrive with the apps: the cart-drawer upsell that hides focusable elements behind `aria-hidden`, the review widget's sub-24px tap targets, the untitled chat iframe, the tracking pixel's alt-less 1x1s. Telling a merchant to "fix the theme" for those wastes everyone's time. This skill fingerprints the failing DOM (Rebuy, Okendo, Klaviyo, Judge.me, Loox, Yotpo, Stamped, Privy, Attentive, Recharge, Gorgias, Tidio, page builders, payment iframes, and more), splits the report into theme-owned vs app-injected, and gives each app finding a fix route: widget settings, or a support ticket the merchant can forward verbatim.
-
 ## What it does
 
 1. **Samples by theme template, not URL count.** A Shopify store renders thousands of URLs through a handful of templates. The skill reads the sitemap and audits one representative each of home, PDP, collection, article, content page, and cart (search and 404 on thorough runs), picking the most app-heavy PDP rather than the sparsest. Checkout is Shopify-hosted and locked; it's reported as out of scope, never silently passed.
 2. **Scans with two engines at once.** `scripts/scan.sh` runs pa11y with both axe-core and HTML_CodeSniffer in a single Puppeteer instance, plus optional Lighthouse for the familiar 0-100 score. Pinned majors (`pa11y@9`, `lighthouse@13`), no global installs.
 3. **Compresses before the model reads anything.** `scripts/merge_findings.py` normalizes both engines' output to WCAG success criteria, dedups cross-engine, caps evidence samples, tags every node with its suspected owner, and splits hard violations from a judgment queue. A 6-page scan produces ~9MB of raw JSON; the model reads ~36KB. Raw scanner JSON never enters context. Pages whose scan failed are surfaced as UNSCANNED, never mistaken for clean.
-4. **Adds the model pass scanners can't do.** Alt text *quality* (not just presence), useless link names, contrast indeterminates over hero imagery, readability (advisory), semantic HTML, and triage of the high-false-positive HTML_CodeSniffer warning queue.
-5. **Runs the usability half, not just the markup half.** Scanners can't tab through a page; the agent can. The interactive pass drives the storefront through claude-in-chrome or Playwright: `scripts/focus_probe.js` (injected in-page, zero dependencies) maps the real tab order and catches focusables inside `aria-hidden` UI, invisible tab stops (off-canvas carousel clones, hidden popups), missing skip links, and suppressed focus indicators; real Tab/Escape key checks then prove or refute traps and modal focus behavior, and a 320px resize checks reflow. The report still says plainly what a driven browser cannot cover: screen reader announcement and lived assistive-tech experience stay human.
-6. **Grades evidence separately from severity.** Every finding is P0/P1/P2 for impact and Verified/Flagged/Human-required for evidence basis, and takes the lower grade. A screenshot judgment call never masquerades as a machine-verified fact.
-7. **Routes fixes to the party that can make them.** Theme findings name the likely file (`layout/theme.liquid`, the owning section or snippet) with concrete replacement values; app findings name the app and the route (settings vs vendor ticket).
-8. **Files tracker tasks on request.** Reference flow is ClickUp via MCP (one task per grouped finding, priority-mapped, report attached as a doc); adaptable to any tracker.
+4. **Re-measures contrast in the settled state.** `scripts/contrast_reprobe.js` (injected in-page, zero dependencies) finishes running animations, applies the reveal classes AOS and Dawn toggle on scroll, scrolls each target into view, then recomputes its ratio from composited colors, resolving semi-transparent text and stacked translucent backgrounds. Failures come back as computed hex pairs. Scanner noise is dropped. Text over imagery, unresolved color syntax, and knockout type that computes fully transparent come back as *indeterminate* rather than as an invented number.
+5. **Adds the model pass scanners can't do.** Alt text *quality* (not just presence), useless link names, readability (advisory), semantic HTML, and triage of the high-false-positive HTML_CodeSniffer warning queue.
+6. **Runs the usability half, not just the markup half.** Scanners can't tab through a page; the agent can. The interactive pass drives the storefront through claude-in-chrome or Playwright: `scripts/focus_probe.js` (injected in-page, zero dependencies) maps the real tab order and catches focusables inside `aria-hidden` UI, invisible tab stops (off-canvas carousel clones, hidden popups), missing skip links, and suppressed focus indicators; real Tab/Escape key checks then prove or refute traps and modal focus behavior, and a 320px resize checks reflow. The report still says plainly what a driven browser cannot cover: screen reader announcement and lived assistive-tech experience stay human.
+7. **Grades evidence separately from severity.** Every finding is P0/P1/P2 for impact and Verified/Flagged/Human-required for evidence basis, and takes the lower grade. A screenshot judgment call never masquerades as a machine-verified fact.
+8. **Routes fixes to the party that can make them.** Theme findings name the likely file (`layout/theme.liquid`, the owning section or snippet) with concrete replacement values; app findings name the app and the route (settings vs vendor ticket). Collisions get named as collisions: when an app cart drawer is installed over a theme that still ships its own, both answer the toggle, the orphaned theme drawer holds live tab stops offscreen, and neither vendor owns the bug alone.
+9. **Files tracker tasks on request.** Reference flow is ClickUp via MCP (one task per grouped finding, priority-mapped, report attached as a doc); adaptable to any tracker.
 
 Every finding follows one shape:
 
@@ -63,7 +66,9 @@ Then ask for an audit ("run an accessibility audit on example-store.com").
 - **Chrome/Chromium**: pa11y's Puppeteer downloads its own; Lighthouse uses your installed Chrome headless.
 - **Python 3**: for `merge_findings.py` (stdlib only, no pip installs).
 
-Works on password-protected dev stores (pa11y `actions` submit the password form) and unpublished themes (`?preview_theme_id=`). Non-Shopify sites scan fine too; the Shopify-specific steps are skipped and the report says so.
+Works on password-protected dev stores (pa11y `actions` submit the password form) and unpublished themes (`?preview_theme_id=`).
+
+**Shopify storefronts only.** The skill verifies the target is Shopify before it scans anything, and stops if it isn't. Sampling, attribution, fix routes, and the checkout carve-out all assume Shopify; run on a generic site the scanners still emit findings, but the report around them is wrong in ways a reader can't see. Headless storefronts (Hydrogen, custom front ends) are in scope with the theme-layer steps called out as not applicable.
 
 ## What's inside
 
@@ -73,8 +78,9 @@ skills/a11y-audit/
 ├── scripts/scan.sh                       pa11y (axe + htmlcs, WCAG2AA) + optional Lighthouse per URL
 ├── scripts/merge_findings.py             normalize, dedup, compress, owner-tag; readability subcommand
 ├── scripts/focus_probe.js                in-page keyboard/focus probe for the interactive pass
+├── scripts/contrast_reprobe.js           in-page settled-state contrast re-probe (animation trap)
 ├── references/manual-checks.md           the manual/model check catalog (what no engine covers)
-└── references/shopify-attribution.md     app fingerprints, per-app failure families, fix routes
+└── references/shopify-attribution.md     app fingerprints, failure families, collisions, fix routes
 ```
 
 Design notes, for the curious:
@@ -83,6 +89,7 @@ Design notes, for the curious:
 - axe is never run with only the `wcag22aa` tag: that tag selects only rules *new* to WCAG 2.2, which silently drops most of the ruleset.
 - HTML_CodeSniffer warnings/notices are kept, not discarded: they're a pre-filtered queue of exactly the items worth human/model judgment (text-over-image contrast, unlabeled landmark candidates), at the cost of a high false-positive rate the model triages.
 - Owner fingerprints are deterministic regexes over selector + markup, computed for every instance, not just the sampled nodes; unmatched instances are attributed by the model in the judge pass.
+- The contrast re-probe settles the page synchronously (`getAnimations().finish()`, plus the reveal classes AOS and Dawn toggle on scroll) rather than sleeping and hoping, so it produces the same numbers on a slow connection as on a fast one. It composites translucent text and stacked translucent backgrounds instead of assuming white, and hit-tests the paint stack under each element rather than only walking CSS backgrounds: on a Shopify collection card the image behind the text is an `<img>`, not a background, and a CSS-only walk reports white overlay text as a 1.09:1 failure that isn't real.
 - The focus probe needs no OS window focus: Chrome won't apply `:focus` styles to a background tab, so when `document.hasFocus()` is false the probe switches from live focus() diffing to CSSOM analysis of the page's focus rules, and labels which method produced the result.
 - Storefront sampling stays within a handful of page fetches: bot crawls of Shopify storefronts trip Cloudflare bans.
 - The skill is an auditor, not a fixer. It recommends fixes with concrete replacement values (computed hex colors, aria-label patterns, the owning Liquid file) but does not edit code or write content without a separate ask.

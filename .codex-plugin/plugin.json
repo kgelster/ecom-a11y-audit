@@ -1,7 +1,7 @@
 {
   "name": "a11y-audit",
-  "description": "WCAG 2.2 AA accessibility audits for Shopify stores: dual-engine scan, model judgment pass, keyboard/focus probe, and per-finding attribution to the theme or the injecting app",
-  "version": "1.2.0",
+  "description": "WCAG 2.2 AA accessibility audits for Shopify stores: dual-engine scan, model judgment pass, keyboard/focus and settled-state contrast probes, and per-finding attribution to the theme, the injecting app, or the collision between them",
+  "version": "1.3.0",
   "author": {
     "name": "Kurt Elster",
     "url": "https://github.com/kgelster"
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Ecom A11y Audit",
     "shortDescription": "Audit a storefront against WCAG 2.2 AA and blame the right party.",
-    "longDescription": "Accessibility audit for Shopify stores: pa11y (axe-core + HTML_CodeSniffer) and Lighthouse scans sampled by theme template, a model judgment pass for what scanners cannot decide, an in-page keyboard/focus probe, and attribution of every finding to the theme or the app that injected it. Never claims compliance from a clean scan.",
+    "longDescription": "Accessibility audit for Shopify stores: pa11y (axe-core + HTML_CodeSniffer) and Lighthouse scans sampled by theme template, a model judgment pass for what scanners cannot decide, in-page keyboard/focus and settled-state contrast probes, and attribution of every finding to the theme or the app that injected it. Never claims compliance from a clean scan.",
     "developerName": "Kurt Elster",
     "category": "Productivity",
     "capabilities": [
