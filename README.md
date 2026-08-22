@@ -1,14 +1,8 @@
-# a11y-audit
+# ecom-a11y-audit
 
 **A WCAG 2.2 AA audit that knows a Shopify store is not one codebase.**
 
 Point it at a storefront. It returns a prioritized findings report with every finding attributed to the party that can actually fix it: the theme, the app that injected the markup, or the collision between them. Built for Claude Code, and for any agent runtime that reads `SKILL.md` skills.
-
-**Attribution is the whole point.** Most of what fails on a real store did not come from the theme. The cart-drawer upsell hides focusable elements behind `aria-hidden`. The review widget ships sub-24px star filters. The chat launcher is an untitled iframe. The ad pixel drops an alt-less 1x1 on every page. Telling the merchant to "fix the theme" for those sends them to edit markup they don't control, and nothing gets fixed. This skill fingerprints the failing DOM (Rebuy, Okendo, Klaviyo, Judge.me, Loox, Yotpo, Stamped, Privy, Attentive, Recharge, Gorgias, Tidio, page builders, payment iframes, and more), splits the report into theme-owned, app-injected, and collision findings, and gives each app finding a fix route: widget settings, or a support ticket the merchant forwards verbatim. It also knows what escalation gets you, because a vendor will never certify compliance but will usually ship a per-merchant workaround through the widget's lifecycle callbacks.
-
-**It re-measures contrast instead of trusting the scanner.** axe samples color at page load, which on a theme with entrance animations (AOS, Dawn's `scroll-trigger`, GSAP, any `fade-up` class) is mid-fade. One audited theme reported **318 color-contrast failures**; every element re-checked in its settled state passed, between 5.3:1 and 21:1. Shipping that scan verbatim would have made a false headline finding. The skill forces animations to their end state in-page and recomputes real ratios from composited colors before a single contrast number reaches the report.
-
-**Honesty is the product.** Automated rules cover roughly 20-40% of WCAG success criteria. This skill never claims compliance from a clean scan, never marks an unchecked criterion as a pass, and never invents a contrast ratio it didn't compute. Criteria that weren't exercised are reported as **Undetermined**, not passed.
 
 ## What a report looks like
 
@@ -18,6 +12,12 @@ That is a real run, not a mockup: the repo's eval harness (`eval/run.sh --e2e`) 
 [a local fixture page](eval/fixtures/planted.html) with six planted defects. All six were caught,
 including the `alt="DSC_0042.jpg"` catch that scanners pass and only the model judgment layer can
 make. Full output: [docs/sample-report.md](docs/sample-report.md).
+
+**Attribution is the whole point.** Most of what fails on a real store did not come from the theme. The cart-drawer upsell hides focusable elements behind `aria-hidden`. The review widget ships sub-24px star filters. The chat launcher is an untitled iframe. The ad pixel drops an alt-less 1x1 on every page. Telling the merchant to "fix the theme" for those sends them to edit markup they don't control, and nothing gets fixed. This skill fingerprints the failing DOM (Rebuy, Okendo, Klaviyo, Judge.me, Loox, Yotpo, Stamped, Privy, Attentive, Recharge, Gorgias, Tidio, page builders, payment iframes, and more), splits the report into theme-owned, app-injected, and collision findings, and gives each app finding a fix route: widget settings, or a support ticket the merchant forwards verbatim. It also knows what escalation gets you, because a vendor will never certify compliance but will usually ship a per-merchant workaround through the widget's lifecycle callbacks.
+
+**It re-measures contrast instead of trusting the scanner.** axe samples color at page load, which on a theme with entrance animations (AOS, Dawn's `scroll-trigger`, GSAP, any `fade-up` class) is mid-fade. One audited theme reported **318 color-contrast failures**; every element re-checked in its settled state passed, between 5.3:1 and 21:1. Shipping that scan verbatim would have made a false headline finding. The skill forces animations to their end state in-page and recomputes real ratios from composited colors before a single contrast number reaches the report.
+
+**Honesty is the product.** Automated rules cover roughly 20-40% of WCAG success criteria. This skill never claims compliance from a clean scan, never marks an unchecked criterion as a pass, and never invents a contrast ratio it didn't compute. Criteria that weren't exercised are reported as **Undetermined**, not passed.
 
 ## What it does
 
@@ -50,7 +50,7 @@ As a Claude Code plugin:
 ```
 
 For Codex, Cursor, or any other agent that reads `SKILL.md` skills, the
-`skills` CLI installs it straight from this repo:
+[`skills` CLI](https://agentskills.io) installs it straight from this repo:
 
 ```
 npx skills add https://github.com/kgelster/ecom-a11y-audit --skill a11y-audit
