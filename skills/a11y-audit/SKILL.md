@@ -31,6 +31,7 @@ Auditing only the homepage is the most common real-world failure; the homepage i
 
 - Fetch `sitemap.xml` first (Shopify generates it; sub-sitemaps per resource type) and count URLs per template group.
 - Minimum Shopify sample: home + one PDP + one collection + one blog article + `/cart` + one content page (usually contact). Add `/search?q=` and the 404 page when the audit is thorough, plus any page the user named. Pick the PDP/collection with the most apps visible (reviews, upsells, bundles), not the sparsest one.
+- `/cart` is a state, not always a page. Many themes 301 an empty cart to `/`, so the scan silently measures the homepage twice (`scan.sh` warns on redirects and `summary.md` marks the duplicate); drawer-cart themes never render `/cart` at all. Add an item first (scan `/cart/add?id=<variant_id>`, which redirects to a populated `/cart`, or use pa11y `actions`), or audit the drawer as an interaction state in step 4f, and say which in the report.
 - 5-8 pages covers most stores because template count, not URL count, bounds the markup variety. 1 page is a scan, not an audit, and the report must say which it was.
 - Never crawl a Shopify storefront with bots beyond these few page fetches: automated crawls trip Cloudflare bans. Sample via sitemap fetches only.
 - Checkout is Shopify-hosted and locked (non-Plus): out of scope, reported as Undetermined, never as passed.
@@ -46,12 +47,13 @@ LIGHTHOUSE=1 bash $SKILL/scripts/scan.sh $OUT <urls...>   # add LH when the user
 python3 $SKILL/scripts/merge_findings.py $OUT             # → findings.json + summary.md
 ```
 
+- `scan.sh` preflights pa11y against a local file and aborts (exit 3) if its Chrome fails to launch. pa11y's Puppeteer Chrome and Lighthouse's system Chrome are different binaries: with the Puppeteer one broken, Lighthouse still returns full results while every pa11y file is empty, a partial scan that looks complete. The preflight prints the recovery; `PREFLIGHT=0` skips it.
 - pa11y exit code 2 = issues found = success. Both engines run in one Puppeteer instance; this avoids the chromedriver-version mismatch that breaks `@axe-core/cli` (observed 2026-08).
 - `summary.md` lists any page whose scan failed as **UNSCANNED**. Report those pages as Not scanned, never as clean, and re-run them before drawing sitewide conclusions.
 - **Never read the raw pa11y/Lighthouse JSON into context.** Read `summary.md` and `findings.json` only; the merge script dedups cross-engine by (SC, selector), caps sample nodes at 5 per rule per page, and separates violations from the judgment queue.
 - Tripwire: if a page returns zero issues *and* zero warnings/notices, suspect the SPA rendered after the scan. Re-run with `--timeout 90000` or verify the page had content (curl the URL, check byte count).
 - For pages behind login or states behind interaction (open modal, cart drawer, form error state), use pa11y `--config` with `actions` (click/fill/wait steps), or drive a browser tool and audit the accessibility tree manually. Say in the report which states were and weren't exercised.
-- Password-protected store (dev/pre-launch): pa11y `actions` can submit the password form first (`set field #password to X`, `click element [type=submit]`, `wait for path to not be /password`). Unpublished theme: append `?preview_theme_id=<id>` to every URL; note in the report that the audit ran against a preview.
+- Password-protected store (dev/pre-launch): pa11y `actions` can submit the password form first (`set field #password to X`, `click element [type=submit]`, `wait for path to not be /password`). Unpublished theme: append `?preview_theme_id=<id>` to every URL; note in the report that the audit ran against a preview. The preview bar iframe Shopify injects on every previewed page (`#PBarNextFrame`) is tagged `shopify-preview-bar` and dropped by the merge script as a scan artifact; never report it.
 - Preview sessions are sticky and the preview cookie is `httpOnly`, so page JS cannot clear it: a browser left on a preview theme keeps auditing that theme on bare URLs. Put it back on live by navigating to `?preview_theme_id=<live theme id>`, and re-check the served markup before trusting a comparison between two themes.
 - If the audit needs a theme-side step (pull the theme to name the failing file, push a fix to an unpublished copy), budget for a separate login: `shopify theme` commands run their own device-code flow and do not reuse an Admin API session or a custom-app token, and custom-app tokens usually lack `read_themes` / `write_themes` entirely. Storefront-only audits need none of this.
 
@@ -69,7 +71,7 @@ Work through, in order:
 
 1. Inject `scripts/contrast_reprobe.js` through the browser driver, with its `SELECTORS` array replaced by the contrast group's `sample_nodes` selectors from `findings.json` (left empty it auto-samples visible text). It forces animations to their end state, scrolls each target into view, and computes real ratios from composited colors.
 2. `at_risk: true` means the page animates: the scanner's contrast count is unusable as printed. Report the re-probed numbers, and say both counts out loud ("axe reported N at load; M fail in the settled state").
-3. `fail` rows are Verified: cite the ratio, both hex values, and the selector. `pass` rows are scanner noise, drop them silently. `indeterminate` rows need a screenshot judgment and stay Flagged at best. The most common indeterminate on a Shopify theme is text over imagery, and the probe catches both forms: a CSS `background-image` in the ancestor chain, and the collection/hero card pattern where an `<img>` is painted behind a text overlay (a CSS-only walk finds "transparent all the way up", assumes white, and would report white text as a 1.09:1 failure).
+3. `fail` rows are Verified: cite the ratio, both hex values, and the selector. `pass` rows are scanner noise, drop them silently. `indeterminate` rows need a screenshot judgment and stay Flagged at best. The most common indeterminate on a Shopify theme is text over imagery, and the probe catches both forms: a CSS `background-image` in the ancestor chain, and the collection/hero card pattern where an `<img>` is painted behind a text overlay (a CSS-only walk finds "transparent all the way up", assumes white, and would report white text as a 1.09:1 failure). A third form is deferred media: a hero video or lazy background that had not mounted when the probe ran leaves nothing for the hit test to find. The probe treats media wrappers as imagery and downgrades any `fail` with `bg_assumed: true` and light text to indeterminate, because light text over nothing means something the walk can't see paints behind it. Re-probe after the media loads, or judge from a screenshot.
 4. Text whose color computes to `rgba(0,0,0,0)` is usually knockout or outlined display type that renders fine. Judge it from a screenshot; never report it as invisible text on the strength of the computed value.
 5. Never estimate a ratio you didn't compute. No browser driver available: report contrast as Flagged, not Verified, and state that it was not re-measured after settle.
 
@@ -119,6 +121,7 @@ Report structure (markdown):
 4. **App-injected issues**: separate section grouped by app, each finding with its instance count and fix route (widget settings vs vendor ticket, per `references/shopify-attribution.md`). This is the section a merchant forwards verbatim to each vendor.
 5. **Undetermined / human-required**: grouped by shared reason, one clause per group, never a line per criterion.
 6. **Wins**: what passed, as a bare list of SC numbers with at most one sentence total.
+7. **Completeness check**: before the report goes out, diff its checks and sections against `references/sample-report.md`. A check present in the sample and absent from the report is a dropped check, not a pass: run it, or list it under Undetermined. In the field this diff caught three dropped checks on one audit, one of which was a real 1.4.10 reflow failure in a review widget.
 
 ### 6. Tasks (tracker)
 
@@ -148,5 +151,6 @@ Only when the user asked (or asks after seeing the report). The reference flow b
 - `scripts/contrast_reprobe.js`: settled-state contrast re-probe for step 4d (injected in-page, zero dependencies).
 - `references/manual-checks.md`: the manual/model check catalog with per-check instructions (read at step 4).
 - `references/shopify-attribution.md`: app fingerprint table, per-app failure families, and fix routes by owner (read at step 4g).
+- `references/sample-report.md`: a complete report from a real audit; the completeness contract for step 5.
 - Fix patterns for Shopify themes: the `liquid-theme-a11y` skill from Shopify's official AI toolkit plugin, if installed.
 - WAVE (webaim.org) is manual-only/paid API; mention as a human cross-check tool, don't automate it.

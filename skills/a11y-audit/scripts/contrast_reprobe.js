@@ -21,9 +21,11 @@
  * Verdicts are honest, not tidy:
  *   fail            computed from real settled colors, safe to report Verified
  *   pass            settled contrast meets AA: the scanner hit was animation noise
- *   indeterminate   imagery painted behind the text (CSS background OR an <img>
- *                   under a text overlay), unresolved color syntax, still
- *                   transparent after settle: needs a screenshot, never a number
+ *   indeterminate   imagery painted behind the text (CSS background, an <img>
+ *                   under a text overlay, or a deferred-media wrapper whose
+ *                   video had not mounted yet), light text over the assumed
+ *                   canvas, unresolved color syntax, still transparent after
+ *                   settle: needs a screenshot, never a number
  *   not_found       selector matched nothing (late-mounting app DOM, or the page moved)
  *
  * With SELECTORS empty it auto-samples visible text instead, skipping anything
@@ -61,6 +63,7 @@
   if (document.querySelector(".scroll-trigger, .animate--fade-in, [class*='scroll-trigger--']")) markers.push("dawn-scroll-trigger");
   if (window.gsap || window.ScrollTrigger || document.querySelector("[data-gsap]")) markers.push("gsap");
   if (document.querySelector("[class*='fade-up'], [class*='fade-in'], [class*='reveal'], [class*='animate-on-scroll']")) markers.push("generic-reveal-class");
+  if (document.querySelector("[data-cc-animate], .cc-animate-enabled")) markers.push("clean-canvas");
   let running = 0;
   try { running = document.getAnimations().length; } catch (e) {}
   if (running) markers.push(`running_animations:${running}`);
@@ -82,6 +85,13 @@
     offscreen.forEach((el) => el.className = el.className.replace(/\S*--offscreen\S*/g, "").trim());
     actions.push(`offscreen reveal class removed from ${offscreen.length}`);
   }
+  // Clean Canvas themes (Enterprise, Symmetry, Canopy, ...): main.js marks every
+  // [data-cc-animate] element .cc-animate-init at setup (opacity 0) and adds
+  // .cc-animate-in on intersection. The reveal is a class-driven transition, so
+  // finish() has nothing to finish until the class exists; without this every
+  // element below the fold reports "still opacity 0 after settle".
+  const cc = document.querySelectorAll("[data-cc-animate]:not(.cc-animate-in)");
+  if (cc.length) { cc.forEach((el) => el.classList.add("cc-animate-init", "cc-animate-in")); actions.push(`cc-animate-in applied to ${cc.length}`); }
   finished += finishAll(); // transitions started by the class changes above
   if (finished) actions.push(`animations finished: ${finished}`);
 
@@ -161,6 +171,15 @@
       const tag = (n.tagName || "").toLowerCase();
       if (tag === "img" || tag === "video" || tag === "canvas" || tag === "svg" || tag === "picture") {
         return `${tag} element behind the text at ${sel(n)}`;
+      }
+      // Deferred media: a hero video or lazy background whose <video>/<img> has
+      // not mounted yet leaves only its wrapper in the paint stack. Treat the
+      // wrapper as imagery; the ancestor walk would otherwise assume white and
+      // report white hero text as a 1.0:1 failure.
+      const cls = (n.getAttribute && n.getAttribute("class")) || "";
+      if (tag === "deferred-media" || tag === "video-section" || /(^|[\s_-])video([\s_-]|$)/i.test(cls) ||
+          n.hasAttribute("data-video-id") || n.hasAttribute("data-video") || n.hasAttribute("data-cc-video")) {
+        return `deferred media (${tag}${cls ? "." + cls.trim().split(/\s+/)[0] : ""}) behind the text at ${sel(n)}: not mounted at probe time`;
       }
       const cs = getComputedStyle(n);
       if (cs.backgroundImage && cs.backgroundImage !== "none") {
@@ -276,6 +295,15 @@
     const fg = fgRaw.a < 1 ? over(fgRaw, bg.color) : fgRaw;
     const r = Math.round(ratio(fg, bg.color) * 100) / 100;
     const verdict = r >= required ? "pass" : "fail";
+    // Nobody designs light text on nothing: light text with no opaque background
+    // anywhere up the chain means something the walk can't see (deferred media,
+    // a lazy background) paints behind it. A "fail" here is not Verified.
+    if (verdict === "fail" && bg.assumed && lum(fg) >= 0.4) {
+      indet++;
+      results.push({ ...base, verdict: "indeterminate", fg: hex(fg), bg_assumed: true,
+        reason: "light text over the assumed canvas (no opaque background up the chain): deferred media or a lazy background had not mounted at probe time; re-probe after it loads or judge from a screenshot" });
+      continue;
+    }
     if (verdict === "fail") fail++; else pass++;
     results.push({ ...base, verdict, ratio: r, fg: hex(fg), bg: hex(bg.color), bg_assumed: !!bg.assumed });
   }

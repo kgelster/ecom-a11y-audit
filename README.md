@@ -11,7 +11,7 @@ Point it at a storefront. It returns a prioritized findings report with every fi
 That is a real run, not a mockup: the repo's eval harness (`eval/run.sh --e2e`) pointed the skill at
 [a local fixture page](eval/fixtures/planted.html) with six planted defects. All six were caught,
 including the `alt="DSC_0042.jpg"` catch that scanners pass and only the model judgment layer can
-make. Full output: [docs/sample-report.md](docs/sample-report.md).
+make. Full output: [sample-report.md](skills/a11y-audit/references/sample-report.md), which ships inside the skill so the report step can diff a finished audit against it.
 
 **Attribution is the whole point.** Most of what fails on a real store did not come from the theme. The cart-drawer upsell hides focusable elements behind `aria-hidden`. The review widget ships sub-24px star filters. The chat launcher is an untitled iframe. The ad pixel drops an alt-less 1x1 on every page. Telling the merchant to "fix the theme" for those sends them to edit markup they don't control, and nothing gets fixed. This skill fingerprints the failing DOM (Rebuy, Okendo, Klaviyo, Judge.me, Loox, Yotpo, Stamped, Privy, Attentive, Recharge, Gorgias, Tidio, page builders, payment iframes, and more), splits the report into theme-owned, app-injected, and collision findings, and gives each app finding a fix route: widget settings, or a support ticket the merchant forwards verbatim. It also knows what escalation gets you, because a vendor will never certify compliance but will usually ship a per-merchant workaround through the widget's lifecycle callbacks.
 
@@ -63,7 +63,7 @@ Then ask for an audit ("run an accessibility audit on example-store.com").
 ## Requirements
 
 - **Node.js with npx**: the scan script runs `npx --yes pa11y@9` and `npx --yes lighthouse@13` (first run downloads packages, ~1 min). No global installs required; `npm i -g pa11y lighthouse` skips the download wait.
-- **Chrome/Chromium**: pa11y's Puppeteer downloads its own; Lighthouse uses your installed Chrome headless.
+- **Chrome/Chromium**: pa11y's Puppeteer downloads its own on first run; Lighthouse uses your installed Chrome headless. They are different binaries. A corrupted Puppeteer download (`~/.cache/puppeteer` holding an `.app` shell with no framework binary) breaks pa11y while Lighthouse keeps working, and npx-cached pa11y will not re-download it. `scan.sh` launches pa11y once before the URL loop and aborts with the recovery command instead of producing empty pa11y files next to full Lighthouse results.
 - **Python 3**: for `merge_findings.py` (stdlib only, no pip installs).
 
 Works on password-protected dev stores (pa11y `actions` submit the password form) and unpublished themes (`?preview_theme_id=`).
@@ -80,7 +80,8 @@ skills/a11y-audit/
 ├── scripts/focus_probe.js                in-page keyboard/focus probe for the interactive pass
 ├── scripts/contrast_reprobe.js           in-page settled-state contrast re-probe (animation trap)
 ├── references/manual-checks.md           the manual/model check catalog (what no engine covers)
-└── references/shopify-attribution.md     app fingerprints, failure families, collisions, fix routes
+├── references/shopify-attribution.md     app fingerprints, failure families, collisions, fix routes
+└── references/sample-report.md           a complete real-audit report; the completeness contract for the report step
 ```
 
 Design notes, for the curious:
@@ -89,7 +90,8 @@ Design notes, for the curious:
 - axe is never run with only the `wcag22aa` tag: that tag selects only rules *new* to WCAG 2.2, which silently drops most of the ruleset.
 - HTML_CodeSniffer warnings/notices are kept, not discarded: they're a pre-filtered queue of exactly the items worth human/model judgment (text-over-image contrast, unlabeled landmark candidates), at the cost of a high false-positive rate the model triages.
 - Owner fingerprints are deterministic regexes over selector + markup, computed for every instance, not just the sampled nodes; unmatched instances are attributed by the model in the judge pass.
-- The contrast re-probe settles the page synchronously (`getAnimations().finish()`, plus the reveal classes AOS and Dawn toggle on scroll) rather than sleeping and hoping, so it produces the same numbers on a slow connection as on a fast one. It composites translucent text and stacked translucent backgrounds instead of assuming white, and hit-tests the paint stack under each element rather than only walking CSS backgrounds: on a Shopify collection card the image behind the text is an `<img>`, not a background, and a CSS-only walk reports white overlay text as a 1.09:1 failure that isn't real.
+- The contrast re-probe settles the page synchronously (`getAnimations().finish()`, plus the reveal classes AOS, Dawn, and Clean Canvas toggle on scroll) rather than sleeping and hoping, so it produces the same numbers on a slow connection as on a fast one. It composites translucent text and stacked translucent backgrounds instead of assuming white, and hit-tests the paint stack under each element rather than only walking CSS backgrounds: on a Shopify collection card the image behind the text is an `<img>`, not a background, and a CSS-only walk reports white overlay text as a 1.09:1 failure that isn't real. Light text with no opaque background anywhere up the chain is never reported as a fail either: that shape means deferred media (a hero video) had not mounted when the probe ran.
+- Consent banners get their own owner family (Cookiebot, OneTrust, Consentmo, CookieYes, Pandectes, Shopify's native banner) because they are on every page of nearly every store and their fix route is the CMP's admin, not the theme. Shopify's preview bar iframe is recognized and dropped as a scan artifact.
 - The focus probe needs no OS window focus: Chrome won't apply `:focus` styles to a background tab, so when `document.hasFocus()` is false the probe switches from live focus() diffing to CSSOM analysis of the page's focus rules, and labels which method produced the result.
 - Storefront sampling stays within a handful of page fetches: bot crawls of Shopify storefronts trip Cloudflare bans.
 - The skill is an auditor, not a fixer. It recommends fixes with concrete replacement values (computed hex colors, aria-label patterns, the owning Liquid file) but does not edit code or write content without a separate ask.

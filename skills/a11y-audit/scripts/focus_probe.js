@@ -72,10 +72,15 @@
 
   // Elements under display:none / visibility:hidden are NOT in the tab order,
   // so they can't produce keyboard findings; skip them entirely or closed menus
-  // and empty drawers flood every list with false positives.
+  // and empty drawers flood every list with false positives. visibilityProperty
+  // must be passed explicitly: checkVisibility() defaults to display and
+  // content-visibility only, and themes that close drawers/modals with
+  // visibility:hidden (Clean Canvas Enterprise) produced ~20 false
+  // aria_hidden_focusable/invisible_focusable rows per page without it.
+  // opacity is deliberately NOT gated: opacity:0 elements are real tab stops.
   const isRendered = (el) => {
     try {
-      if (el.checkVisibility) return el.checkVisibility({ contentVisibilityAuto: true });
+      if (el.checkVisibility) return el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true });
     } catch (e) {}
     const cs = getComputedStyle(el);
     const r = el.getBoundingClientRect();
