@@ -1,6 +1,6 @@
 {
   "name": "a11y-audit",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Accessibility audits for Shopify stores: scans the storefront against WCAG 2.2 AA with pa11y (axe-core + HTML_CodeSniffer) and Lighthouse, samples by theme template, attributes every finding to the theme, the injecting app (Rebuy, Okendo, Klaviyo, ...), or the collision between them, re-measures contrast in the settled state so entrance animations can't fake failures, and produces an honest, prioritized findings report with per-owner fix routes. Shopify storefronts only. Auditor, not fixer.",
   "author": {
     "name": "Kurt Elster"

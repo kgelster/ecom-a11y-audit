@@ -94,8 +94,15 @@
     if (el.closest('[aria-hidden="true"]')) ariaHiddenFocusable.push(s);
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
-    // still a real tab stop, but the user can't see it: offscreen, zero-size, or opacity 0
-    const unseeable = (r.width === 0 && r.height === 0) || cs.opacity === "0" ||
+    // still a real tab stop, but the user can't see it: offscreen, zero-size, or
+    // opacity 0 on the element OR any ancestor (a closed drawer fades its whole
+    // subtree; the button inside computes opacity 1 on its own)
+    let seeThrough = false;
+    try {
+      if (el.checkVisibility) seeThrough = !el.checkVisibility({ opacityProperty: true });
+      else { for (let n = el; n; n = n.parentElement) { if (getComputedStyle(n).opacity === "0") { seeThrough = true; break; } } }
+    } catch (e) { seeThrough = cs.opacity === "0"; }
+    const unseeable = (r.width === 0 && r.height === 0) || seeThrough ||
       r.right < 0 || r.bottom < 0 ||
       r.left > Math.max(document.documentElement.scrollWidth, innerWidth);
     if (unseeable) {
