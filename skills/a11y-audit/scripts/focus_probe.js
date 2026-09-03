@@ -1,9 +1,16 @@
 /* focus_probe.js — in-page keyboard/focus probe for the a11y-audit interactive pass.
  *
- * Zero dependencies. Inject the whole file through any browser driver that can
- * evaluate JavaScript (claude-in-chrome javascript_tool, Playwright
- * browser_evaluate, puppeteer page.evaluate); the expression evaluates to one
- * JSON-serializable report object.
+ * Zero dependencies. Two ways in, same report either way:
+ *   - paste the whole file into a driver that evaluates JavaScript
+ *     (claude-in-chrome javascript_tool, Playwright browser_evaluate, puppeteer
+ *     page.evaluate): the expression evaluates to one JSON-serializable report;
+ *   - inject it as a script when the driver cannot read files (Playwright MCP
+ *     has no require/fs): `page.addScriptTag({path})`, then read
+ *     `window.__a11yFocus`.
+ *
+ * Shopify's preview bar iframe (#PBarNextFrame on every ?preview_theme_id=
+ * page) is skipped as a scan artifact, the same way merge_findings.py drops it
+ * from scanner output: it is never on the live theme.
  *
  * What it checks (deterministic DOM facts unless noted):
  *   - tabbable elements in tab order; positive tabindex
@@ -43,10 +50,17 @@
 
   const cap = (arr) => ({ count: arr.length, sample: arr.slice(0, MAX_SAMPLES) });
 
+  const SCAN_ARTIFACTS = '#PBarNextFrame, #preview-bar-iframe, [id*="preview-bar"], [class*="preview-bar"]';
+  let artifactsSkipped = 0;
   const candidates = Array.from(document.querySelectorAll(
     'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"], ' +
     'audio[controls], video[controls], summary, iframe'
-  ));
+  )).filter((el) => {
+    let artifact = false;
+    try { artifact = !!el.closest(SCAN_ARTIFACTS); } catch (e) {}
+    if (artifact) artifactsSkipped++;
+    return !artifact;
+  });
 
   const tabbables = candidates.filter((el) => {
     if (el.disabled) return false;
@@ -78,13 +92,19 @@
   // visibility:hidden (Clean Canvas Enterprise) produced ~20 false
   // aria_hidden_focusable/invisible_focusable rows per page without it.
   // opacity is deliberately NOT gated: opacity:0 elements are real tab stops.
+  // Both option spellings are passed (checkVisibilityCSS is the pre-rename
+  // alias; a Chromium that predates the rename ignores visibilityProperty
+  // silently) and the computed value is checked directly as well.
   const isRendered = (el) => {
-    try {
-      if (el.checkVisibility) return el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true });
-    } catch (e) {}
     const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility !== "visible") return false;
+    try {
+      if (el.checkVisibility) {
+        return el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true, checkVisibilityCSS: true });
+      }
+    } catch (e) {}
     const r = el.getBoundingClientRect();
-    return cs.display !== "none" && cs.visibility !== "hidden" && (r.width > 0 || r.height > 0);
+    return r.width > 0 || r.height > 0;
   };
 
   for (const { el, ti } of ordered) {
@@ -99,7 +119,7 @@
     // subtree; the button inside computes opacity 1 on its own)
     let seeThrough = false;
     try {
-      if (el.checkVisibility) seeThrough = !el.checkVisibility({ opacityProperty: true });
+      if (el.checkVisibility) seeThrough = !el.checkVisibility({ opacityProperty: true, checkOpacity: true });
       else { for (let n = el; n; n = n.parentElement) { if (getComputedStyle(n).opacity === "0") { seeThrough = true; break; } } }
     } catch (e) { seeThrough = cs.opacity === "0"; }
     const unseeable = (r.width === 0 && r.height === 0) || seeThrough ||
@@ -199,7 +219,7 @@
     }
   }
 
-  return {
+  const report = {
     note: "Heuristic classes (no_focus_indicator, order_regressions) are Flagged evidence: " +
       "focus-indicator detection is live-diff or CSSOM depending on document focus (see " +
       "focus_indicator_method), and visual order is inferred from geometry. Real-key spot " +
@@ -207,6 +227,7 @@
     url: location.href,
     viewport: { width: innerWidth, height: innerHeight },
     tabbable_count: ordered.length,
+    scan_artifacts_skipped: artifactsSkipped,
     focus_indicator_method: docFocused ? "live-diff" : "cssom",
     focus_indicator_meta: typeof cssomMeta !== "undefined" ? cssomMeta : null,
     focus_style_tested: tested,
@@ -222,4 +243,6 @@
       viewport_width: innerWidth,
     },
   };
+  try { window.__a11yFocus = report; } catch (e) {}
+  return report;
 })()

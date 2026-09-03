@@ -10,7 +10,7 @@
 #   OUTDIR/pa11y-N-<slug>.json      pa11y issues (axe + htmlcs, WCAG2AA)
 #   OUTDIR/lh-N-<slug>.json         Lighthouse accessibility category (if LIGHTHOUSE=1)
 #   OUTDIR/urls.tsv                 index of N <TAB> URL
-#   OUTDIR/redirects.tsv            N <TAB> requested URL <TAB> final URL after redirects
+#   OUTDIR/redirects.tsv            N <TAB> requested URL <TAB> final URL after redirects <TAB> HTTP status
 #
 # Notes:
 # - pa11y exits 2 when issues are found; that is success for our purposes.
@@ -20,9 +20,16 @@
 #   Puppeteer one broken (corrupted ~/.cache/puppeteer from an interrupted
 #   download) every pa11y JSON comes back empty while Lighthouse returns full
 #   results, a partial scan that looks complete. PREFLIGHT=0 skips the check.
-# - Each URL is resolved with curl first; a redirect is logged to redirects.tsv
-#   and warned about, and a destination already in the scan is flagged as a
-#   duplicate (an empty /cart 301ing to / scans the homepage twice).
+# - Each URL is resolved with curl first (with a cookie jar, so it follows the
+#   same path a browser does); a redirect is logged to redirects.tsv and warned
+#   about, and a destination already in the scan is flagged as a duplicate (an
+#   empty /cart 301ing to / scans the homepage twice). A ?preview_theme_id= URL
+#   302s to the bare URL after setting the preview cookie; pa11y follows with
+#   cookies and measures the preview, so that redirect is logged but not warned.
+# - The final HTTP status is recorded too. A 404 means the sampled URL has no
+#   page (a sitemap-advertised metaobject type with storefront URLs but no
+#   template is the usual cause); merge_findings.py marks it so it is not
+#   mistaken for a second 404-page sample.
 # - Uses npx --yes with pinned majors (pa11y@9, lighthouse@13) so a scanner major
 #   bump can't silently change results; first run downloads packages (~1 min).
 set -uo pipefail
@@ -51,6 +58,15 @@ if [ "${PREFLIGHT:-1}" = "1" ]; then
   esac
 fi
 
+# strip the params Shopify adds around theme preview so a preview URL and its
+# cookie-set redirect target compare equal
+norm_url() {
+  printf '%s' "$1" | sed -E 's~([?&])(preview_theme_id|_ab|_fd|_sc|key)=[^&#]*~\1~g; s~&&+~\&~g; s~\?&~?~; s~[?&]+$~~; s~/+$~~'
+}
+
+jar=$(mktemp "${TMPDIR:-/tmp}/a11y-jar.XXXXXX")
+trap 'rm -f "$jar"' EXIT
+
 i=0
 for url in "$@"; do
   # only http(s) URLs: anything else (including dash-prefixed strings, e.g. from a
@@ -63,14 +79,18 @@ for url in "$@"; do
   slug=$(echo "$url" | sed -E 's~https?://~~; s~[^A-Za-z0-9]+~-~g; s~-+$~~' | cut -c1-60)
   printf '%s\t%s\n' "$i" "$url" >> "$OUTDIR/urls.tsv"
 
-  final=$(curl -sL -o /dev/null --max-time 30 -A "Mozilla/5.0 (a11y-audit scan)" -w '%{url_effective}' "$url" 2>/dev/null || true)
-  [ -n "$final" ] || final="$url"
-  printf '%s\t%s\t%s\n' "$i" "$url" "$final" >> "$OUTDIR/redirects.tsv"
-  if [ "${final%/}" != "${url%/}" ]; then
+  probe=$(curl -sL -o /dev/null --max-time 30 -b "$jar" -c "$jar" -A "Mozilla/5.0 (a11y-audit scan)" -w '%{url_effective} %{http_code}' "$url" 2>/dev/null || true)
+  final="${probe% *}"; status="${probe##* }"
+  [ -n "$final" ] && [ "$final" != "$probe" ] || { final="$url"; status=""; }
+  printf '%s\t%s\t%s\t%s\n' "$i" "$url" "$final" "$status" >> "$OUTDIR/redirects.tsv"
+  case "$status" in
+    404|410) echo "  WARN HTTP $status: $url has no page. If it came from the sitemap, its template group (a metaobject type with URLs enabled, usually) has no template; drop it from the sample and note it in the report." >&2 ;;
+  esac
+  if [ "$(norm_url "$final")" != "$(norm_url "$url")" ]; then
     echo "  WARN redirect: $url -> $final (the scan measures the destination)" >&2
     dup=0
     for other in "$@"; do
-      [ "$other" != "$url" ] && [ "${other%/}" = "${final%/}" ] && dup=1
+      [ "$other" != "$url" ] && [ "$(norm_url "$other")" = "$(norm_url "$final")" ] && dup=1
     done
     if [ "$dup" = "1" ]; then
       echo "  WARN duplicate: $final is already in this scan. An empty /cart often 301s to /; add an item first (scan /cart/add?id=<variant_id>) or drop the page." >&2

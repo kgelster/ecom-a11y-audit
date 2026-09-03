@@ -9,9 +9,15 @@
  * state passed at 5.3:1 to 21:1. Reporting that scan verbatim would have made a
  * false headline finding the whole audit.
  *
- * Zero dependencies. Paste the whole file into any driver that evaluates
- * JavaScript (claude-in-chrome javascript_tool, Playwright browser_evaluate);
- * the expression evaluates to one JSON-serializable report.
+ * Zero dependencies. Two ways in, same report either way:
+ *   - paste the whole file into a driver that evaluates JavaScript
+ *     (claude-in-chrome javascript_tool, Playwright browser_evaluate): the
+ *     expression evaluates to one JSON-serializable report;
+ *   - inject it as a script when the driver cannot read files (Playwright MCP has
+ *     no require/fs): `page.addScriptTag({path})`, then read
+ *     `window.__a11yContrast`. Selectors go in through `window.__a11ySelectors`
+ *     (an array), which merge_findings.py writes per page as contrast-N-<slug>.js
+ *     for the same addScriptTag call.
  *
  * It MUTATES the page to force the settled state (finishes running animations,
  * applies the reveal classes AOS/Dawn toggle on scroll). That is fine on a
@@ -34,12 +40,17 @@
  * open, not a pile of by-design opacity-0 rows in this one.
  */
 (() => {
-  // Selectors to re-check. Replace with the contrast rule group's sample_nodes
-  // selectors from findings.json (axe `color-contrast` / htmlcs 1.4.3). Left
-  // empty, the probe auto-samples visible text elements instead.
-  const SELECTORS = [];
+  // Selectors to re-check: every deduped selector the scanners flagged for
+  // color-contrast / SC 1.4.3 on this page (merge_findings.py writes them to
+  // contrast-N-<slug>.js, which sets window.__a11ySelectors), or paste them
+  // into INLINE_SELECTORS. Feed the whole list, not findings.json's 5-per-page
+  // sample_nodes: a count re-measured on a sample is a sample, and the report
+  // has to say so. Left empty, the probe auto-samples visible text instead.
+  const INLINE_SELECTORS = [];
+  const SELECTORS = INLINE_SELECTORS.length ? INLINE_SELECTORS
+    : (Array.isArray(window.__a11ySelectors) ? window.__a11ySelectors : []);
 
-  const MAX_TARGETS = 60;
+  const MAX_TARGETS = 500;   // explicit selectors beyond this are reported as truncated
   const AUTO_SAMPLE = 40;
 
   const sel = (el) => {
@@ -209,16 +220,43 @@
   // report with "still opacity 0 after settle" rows that are by design. An
   // explicitly requested selector is never gated: if the scanner flagged it,
   // the auditor needs to know why it can't be judged.
+  //
+  // checkVisibility's option names were renamed (checkVisibilityCSS ->
+  // visibilityProperty, checkOpacity -> opacityProperty) and a Chromium that
+  // predates the rename ignores the new names silently, so visibility:hidden
+  // content (a closed search panel's "Free Shipping" line) passes the gate and
+  // fails contrast on every page. Pass both spellings, and check the computed
+  // value directly as well; visibility inherits, so the element's own value
+  // is the truth.
   const isShowing = (el) => {
+    const cs = getComputedStyle(el);
+    if (cs.visibility !== "visible" || cs.display === "none" || cs.opacity === "0") return false;
     try {
       if (el.checkVisibility) {
         return el.checkVisibility({
-          contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true,
+          contentVisibilityAuto: true,
+          opacityProperty: true, checkOpacity: true,
+          visibilityProperty: true, checkVisibilityCSS: true,
         });
       }
     } catch (e) {}
-    const cs = getComputedStyle(el);
-    return cs.display !== "none" && cs.visibility !== "hidden" && cs.opacity !== "0";
+    return true;
+  };
+
+  // Is the element actually painted where it says it is? After scrollIntoView
+  // its center must hit-test to itself (or a descendant): anything clipped by
+  // overflow, clip-path, an offscreen transform, or hidden by an ancestor is
+  // absent from the paint stack. pointer-events:none elements never hit-test,
+  // so they are trusted on checkVisibility alone.
+  const isPainted = (el) => {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    if (getComputedStyle(el).pointerEvents === "none") return true;
+    const x = Math.min(Math.max(r.left + r.width / 2, 1), innerWidth - 1);
+    const y = Math.min(Math.max(r.top + r.height / 2, 1), innerHeight - 1);
+    let stack = [];
+    try { stack = document.elementsFromPoint(x, y); } catch (e) { return true; }
+    return stack.some((n) => n === el || el.contains(n));
   };
 
   // ---- targets ---------------------------------------------------------------
@@ -230,7 +268,9 @@
     targets.push({ el, from });
   };
   const results = [];
-  if (SELECTORS.length) {
+  let truncated = 0, matched = 0;
+  const auto = !SELECTORS.length;
+  if (!auto) {
     for (const s of SELECTORS) {
       let found = [];
       try { found = Array.from(document.querySelectorAll(s)); } catch (e) {
@@ -238,16 +278,19 @@
         continue;
       }
       if (!found.length) { results.push({ selector: s, verdict: "not_found", reason: "matched 0 elements" }); continue; }
+      matched++;
+      if (targets.length >= MAX_TARGETS) { truncated++; continue; }
       found.slice(0, 3).forEach((el) => push(el, s));
     }
   } else {
+    // candidates only; the paint hit-test below needs each one scrolled into
+    // view first, so the sample is cut to AUTO_SAMPLE as it is measured
     Array.from(document.querySelectorAll("body *"))
       .filter((el) => hasOwnText(el))
       // >2px in both directions: skips screen-reader-only text (the 1px clip
       // pattern), whose contrast is not a thing that exists
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 2 && r.height > 2; })
       .filter(isShowing)
-      .slice(0, AUTO_SAMPLE)
       .forEach((el) => push(el, "auto-sample"));
   }
 
@@ -261,11 +304,18 @@
   const prevScroll = { x: scrollX, y: scrollY };
   htmlStyle.scrollBehavior = "auto";
 
-  let fail = 0, pass = 0, indet = 0;
+  let fail = 0, pass = 0, indet = 0, hiddenSkipped = 0, measured = 0;
   for (const t of targets) {
     const el = t.el;
+    if (auto && measured >= AUTO_SAMPLE) break;
     try { el.scrollIntoView({ block: "center", inline: "nearest" }); } catch (e) {}
     finishAll();                       // reveals the scroll just started
+    // Hidden at rest (closed panel, clipped drawer, offscreen transform): an
+    // auto-sampled element is skipped silently; a scanner-flagged one is kept
+    // but cannot be judged in this state.
+    const painted = isShowing(el) && isPainted(el);
+    if (!painted && auto) { hiddenSkipped++; continue; }
+    measured++;
     const cs = getComputedStyle(el);
     const size = parseFloat(cs.fontSize) || 16;
     const weight = parseInt(cs.fontWeight, 10) || 400;
@@ -279,6 +329,8 @@
       font: `${Math.round(size)}px/${weight}`,
       required,
     };
+
+    if (!painted) { indet++; results.push({ ...base, verdict: "indeterminate", reason: "hidden at probe time (visibility:hidden, clipped, or offscreen): the scanner saw it in another state; re-probe with that panel or drawer open" }); continue; }
 
     const fgRaw = parseColor(cs.color);
     const op = opacityChain(el);
@@ -311,7 +363,7 @@
   try { scrollTo(prevScroll.x, prevScroll.y); } catch (e) {}
   htmlStyle.scrollBehavior = prevScrollBehavior;
 
-  return {
+  const report = {
     note: "Settled-state contrast, measured after forcing entrance animations to their end state. " +
       "'fail' is computed from real colors and is Verified evidence. 'pass' means the scanner's hit was " +
       "animation noise and must NOT be reported as a failure. 'indeterminate' needs a screenshot, never " +
@@ -321,8 +373,22 @@
     animation_markers: markers,
     settle_actions: actions,
     at_risk: markers.length > 0,
+    // coverage: what the verdict counts are a count OF. With explicit selectors,
+    // requested/matched/checked say whether the whole scanner group was
+    // re-measured or a slice of it; the report must not print "N fail in the
+    // settled state" over a slice without saying so.
+    coverage: {
+      mode: auto ? "auto-sample" : "selectors",
+      requested_selectors: SELECTORS.length,
+      matched_selectors: matched,
+      truncated_selectors: truncated,
+      elements_checked: measured,
+      hidden_skipped: hiddenSkipped,
+    },
     checked: results.length,
     counts: { fail, pass, indeterminate: indet, not_found: results.filter((r) => r.verdict === "not_found").length },
     results,
   };
+  try { window.__a11yContrast = report; } catch (e) {}
+  return report;
 })()
