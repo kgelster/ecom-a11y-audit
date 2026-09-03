@@ -50,7 +50,7 @@
 
   const cap = (arr) => ({ count: arr.length, sample: arr.slice(0, MAX_SAMPLES) });
 
-  const SCAN_ARTIFACTS = '#PBarNextFrame, #preview-bar-iframe, [id*="preview-bar"], [class*="preview-bar"]';
+  const SCAN_ARTIFACTS = '#PBarNextFrame, #preview-bar-iframe, [id^="PBar"], [id*="preview-bar"], [class*="preview-bar"]';
   let artifactsSkipped = 0;
   const candidates = Array.from(document.querySelectorAll(
     'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"], ' +
