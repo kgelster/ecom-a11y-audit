@@ -48,8 +48,14 @@
     'audio[controls], video[controls], summary, iframe'
   ));
 
+  // Shopify's preview bar (?preview_theme_id=) injects a fixed iframe on every
+  // previewed page. merge_findings.py already drops it as a scan artifact; the
+  // probe must too, or it becomes the sole no_focus_indicator / order_regressions
+  // hit on every page of an unpublished-theme audit.
+  const PREVIEW_BAR = '#PBarNextFrame, #preview-bar-iframe, [id^="PBar"]';
   const tabbables = candidates.filter((el) => {
     if (el.disabled) return false;
+    try { if (el.matches(PREVIEW_BAR) || el.closest(PREVIEW_BAR)) return false; } catch (e) {}
     const ti = el.getAttribute("tabindex");
     if (ti !== null && parseInt(ti, 10) < 0) return false;
     return true;
