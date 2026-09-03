@@ -66,7 +66,13 @@ for url in "$@"; do
   final=$(curl -sL -o /dev/null --max-time 30 -A "Mozilla/5.0 (a11y-audit scan)" -w '%{url_effective}' "$url" 2>/dev/null || true)
   [ -n "$final" ] || final="$url"
   printf '%s\t%s\t%s\n' "$i" "$url" "$final" >> "$OUTDIR/redirects.tsv"
-  if [ "${final%/}" != "${url%/}" ]; then
+  # Shopify answers ?preview_theme_id= with a cookie-setting 302 back to the bare
+  # URL. Cookie-less curl lands on the bare URL, but pa11y/Lighthouse keep the
+  # cookie and measure the preview theme, so that hop is not a redirect the scan
+  # measures. Compare with the parameter stripped from both sides.
+  strip_preview() { printf '%s' "$1" | sed -E 's/([?&])preview_theme_id=[0-9]+&?/\1/; s/[?&]$//'; }
+  url_cmp=$(strip_preview "$url"); final_cmp=$(strip_preview "$final")
+  if [ "${final_cmp%/}" != "${url_cmp%/}" ]; then
     echo "  WARN redirect: $url -> $final (the scan measures the destination)" >&2
     dup=0
     for other in "$@"; do
