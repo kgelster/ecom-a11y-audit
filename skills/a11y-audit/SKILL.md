@@ -147,6 +147,7 @@ Only when the user asked (or asks after seeing the report). The reference flow b
 - Do not audit a non-Shopify site with this skill and present it as an audit: the sampling, attribution, and fix routes assume Shopify.
 - Do not run axe with only the `wcag22aa` tag (it selects only rules *new* to 2.2); the scan script's WCAG2AA standard handles this correctly.
 - Do not write alt text, link text, or error copy into a live site as a "fix" without the owner's sign-off.
+- Do not bundle `width`/`height` attributes into an alt-text fix on an `<img>` whose CSS sets `width` but not `height`; the `height` attribute wins and stretches the image (see the theme fix route in `references/shopify-attribution.md`). Verify the rendered box after any markup change to an image.
 
 ## References
 
